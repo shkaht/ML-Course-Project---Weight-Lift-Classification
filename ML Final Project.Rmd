@@ -1,0 +1,139 @@
+---
+title: "ML Dumbell"
+author: "Scott Dayer"
+date: "5/18/2019"
+output: html_document
+---
+
+## Executive Summary
+
+This report describes the process and analysis performed to build a model that accurately predicts the method ("classe") in which a dumbell is raised from the Weight Lifting Exercise Dataset. After exploratory data analysis is conducted, and pre-processing strategies are identified, several models are constructed and analyzed on a validation set of data, and a final model is selected for optimal accuracy and processing speed for use on the test data in order to submit the course quiz.  
+
+The selected model utilizes principal component analysis for pre-processing, k-folds cross validation, a random forest machine learning algorithm.  Identification of the correct "classe" is approximately 99% accurate.  
+
+```{r}
+
+library(tidyverse)
+library(caret)
+library(doParallel)
+
+training <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
+testing <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
+
+```
+## Exploratory Data Analysis
+
+
+```{r}
+
+head()
+
+na_count <- sapply(training, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+
+#identify the variables with near zero variance
+# to eliminate certain variables that 
+nzv <- nearZeroVar(training)
+
+#remove all variable with near zero variance
+trainingNNZV <- training[,-c(nzv)]
+100
+#remove all columns with NAs
+training2 <- trainingNNZV[,colSums(is.na(trainingNNZV)) < 15000]
+t <- training2[,6:59]
+
+# create a validation set from training set
+
+inTrain <- createDataPartition(t$classe, p = .9, list = FALSE)
+trainSet <- t[inTrain,]
+validationSet <- t[-inTrain,]
+
+# correlated predictors
+
+
+M <- (abs(cor(t)))
+diag(M) <- 0
+which(M > 0.8, arr.ind = T)
+
+# PCA
+
+preProc <- preProcess(training2, method = "pca")
+trainPC <- predict(preProc, training2)
+modelFit <- train(training2$classe ~ ., method = "rf", data = trainPC)
+
+# exploratory charts
+
+
+        
+        
+#featurePlot(x = training2, y = training2$classe, plot = "pairs")
+```
+
+# k-fold cross validation
+
+```{r}
+
+kf3 <- trainControl(method = "cv", number = 3, allowParallel = TRUE)
+kf7 <- trainControl(method = "cv", number = 7, allowParallel = TRUE)
+
+
+```
+
+#Validation Testing
+```{r}
+
+
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+model_gbm <- train(classe ~ ., method = "gbm", data = trainSet, preProcess = "pca")
+model_rf <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca")
+model_rfcv <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca",
+                    trControl = kf3)
+model_rfcv7 <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca",
+                    trControl = kf7)
+
+print(model_gbm)
+pred_gbm <- predict(model_gbm, validationSet)
+gbm_resultDF <- data.frame(pred_gbm, actual = validationSet$classe) 
+mean(pred_gbm == validationSet$classe)
+
+print(model_rf)
+pred_rf <- predict(model_rf, validationSet)
+rf_resultDF <- data.frame(pred_rf, actual = validationSet$classe)
+mean(pred_rf == validationSet$classe)
+
+print(model_rfcv)
+pred_rfcv <- predict(model_rfcv, validationSet)
+rfcv_resultDF <- data.frame(pred_rfcv, actual = validationSet$classe)
+mean(pred_rfcv == validationSet$classe)
+
+print(model_rfcv7)
+pred_rfcv7 <- predict(model_rfcv7, validationSet)
+rfcv7_resultDF <- data.frame(pred_rfcv7, actual = validationSet$classe)
+mean(pred_rfcv7 == validationSet$classe)
+
+stopCluster(cluster)
+registerDoSEQ()
+
+```
+
+# Prediction quiz
+
+```{r}
+
+pred_gbm_quiz <- predict(model_gbm, testing)
+pred_rf_quiz <- predict(model_rf, testing)
+```
+
+
+## 5 different categories:
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
+
+exactly according to the specification (Class A) 
+throwing the elbows to the front (Class B) 
+lifting the dumbbell only halfway (Class C) 
+lowering the dumbbell only halfway (Class D)
+throwing the hips to the front (Class E)
+
