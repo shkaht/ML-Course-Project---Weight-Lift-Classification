@@ -11,23 +11,32 @@ This report describes the process and analysis performed to build a model that a
 
 The selected model utilizes principal component analysis for pre-processing, k-folds cross validation, a random forest machine learning algorithm.  Identification of the correct "classe" is approximately 99% accurate.  
 
-```{r}
+```{r echo = FALSE, warning=FALSE, cache = TRUE}
 
 library(tidyverse)
 library(caret)
 library(doParallel)
+library(corrplot)
 
 training <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
 testing <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
 
 ```
-## Exploratory Data Analysis
 
+## Exploratory Data Analysis and Data Prep
 
+First, I look at the numbr of variables and amount of data in the training data set.  
 ```{r}
+print(dim(training))
+```
+With nearly 20,000 records and 160 variables, I eliminate some of the variables to remove data issues that might impact the ability to run models, and also to simplify analysis and interpretability.  
 
-head()
+I identify a number of variables with very low variance where the most common value is more than 20 times more frequent than the next most common value and percentage of distinct values out of the number of total samples is less than 10.  
+I also identify a number of variables with mostly (19216 out of 19622) NA values that can be removed from the dataset. 
 
+```{r echo = FALSE, warning=FALSE}
+
+# count number of NAs for each variable
 na_count <- sapply(training, function(y) sum(length(which(is.na(y)))))
 na_count <- data.frame(na_count)
 
@@ -37,39 +46,38 @@ nzv <- nearZeroVar(training)
 
 #remove all variable with near zero variance
 trainingNNZV <- training[,-c(nzv)]
-100
-#remove all columns with NAs
+
+#remove all variables with NAs
 training2 <- trainingNNZV[,colSums(is.na(trainingNNZV)) < 15000]
 t <- training2[,6:59]
+```
+
+### Validation data set
+Next, I create a validation data set from the training data set in order to compare various models' accuracy prior to using on the quiz test set.  
+
+```{r}
 
 # create a validation set from training set
-
 inTrain <- createDataPartition(t$classe, p = .9, list = FALSE)
 trainSet <- t[inTrain,]
 validationSet <- t[-inTrain,]
-
-# correlated predictors
-
-
-M <- (abs(cor(t)))
-diag(M) <- 0
-which(M > 0.8, arr.ind = T)
-
-# PCA
-
-preProc <- preProcess(training2, method = "pca")
-trainPC <- predict(preProc, training2)
-modelFit <- train(training2$classe ~ ., method = "rf", data = trainPC)
-
-# exploratory charts
-
-
-        
-        
-#featurePlot(x = training2, y = training2$classe, plot = "pairs")
 ```
 
-# k-fold cross validation
+### Pair-wise correlation 
+I then explore correlations among preditors. While many of the variables show litlte correlation, there are also many pairs with high levels of correlation.  This is addressed by preprocessing with principal component analysis in construction of the prediction models. 
+
+```{r, fig.height=5, fig.width=5}
+mat <- trainSet[1:length(trainSet)-1]
+mat <- round(cor(mat),2)
+
+corrplot(mat, method = "color", type = "upper", order = "original", tl.cex = .65)
+
+```
+
+## Model construction and selection
+
+4 prediction models are constructed and assessed in order to select a mdel with a high level of predictive accuracy, and also a reasonable processing time.  The first uses a boosting algorithm "gbm" and the default parameters.  Accuracy is ~80%.  The second is a random forest "rf" model with the 
+#### Cross-validation with 
 
 ```{r}
 
