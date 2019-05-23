@@ -1,13 +1,23 @@
 ---
-title: "ML Dumbell"
+title: "Predictive Classification - Dumbell Lift Method"
 author: "Scott Dayer"
-date: "5/18/2019"
+date: "5/23/2019"
 output: html_document
 ---
 
 ## Executive Summary
 
-This report describes the process and analysis performed to build a model that accurately predicts the method ("classe") in which a dumbell is raised from the Weight Lifting Exercise Dataset. After exploratory data analysis is conducted, and pre-processing strategies are identified, several models are constructed and analyzed on a validation set of data, and a final model is selected for optimal accuracy and processing speed for use on the test data in order to submit the course quiz.  
+This report describes the process and analysis performed to build a model that accurately predicts the method ("classe") in which a dumbell is raised from the Weight Lifting Exercise Dataset. 
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
+
+(A) exactly according to the specification  
+(B) throwing the elbows to the front  
+(C) lifting the dumbbell only halfway  
+(D) lowering the dumbbell only halfway 
+(E) throwing the hips to the front 
+
+After exploratory data analysis is conducted, and pre-processing strategies are identified, several models are constructed and analyzed on a validation set of data, and a final model is selected for optimal accuracy and processing speed for use on the test data in order to submit the course quiz.  
 
 The selected model utilizes principal component analysis for pre-processing, k-folds cross validation, a random forest machine learning algorithm.  Identification of the correct "classe" is approximately 99% accurate.  
 
@@ -17,9 +27,13 @@ library(tidyverse)
 library(caret)
 library(doParallel)
 library(corrplot)
+library(Rborist)
+library(fastAdaboost)
 
 training <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
 testing <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
+
+set.seed(10)
 
 ```
 
@@ -53,6 +67,7 @@ t <- training2[,6:59]
 ```
 
 ### Validation data set
+
 Next, I create a validation data set from the training data set in order to compare various models' accuracy prior to using on the quiz test set.  
 
 ```{r}
@@ -64,6 +79,7 @@ validationSet <- t[-inTrain,]
 ```
 
 ### Pair-wise correlation 
+
 I then explore correlations among preditors. While many of the variables show litlte correlation, there are also many pairs with high levels of correlation.  This is addressed by preprocessing with principal component analysis in construction of the prediction models. 
 
 ```{r, fig.height=5, fig.width=5}
@@ -74,74 +90,120 @@ corrplot(mat, method = "color", type = "upper", order = "original", tl.cex = .65
 
 ```
 
-## Model construction and selection
+## Model construction, validation and selection
 
-4 prediction models are constructed and assessed in order to select a mdel with a high level of predictive accuracy, and also a reasonable processing time.  The first uses a boosting algorithm "gbm" and the default parameters.  Accuracy is ~80%.  The second is a random forest "rf" model with the 
-#### Cross-validation with 
+4 prediction models are constructed and assessed in order to select a model with a high level of predictive accuracy, and also a reasonable processing time.  Each are trained on the updated test set and tested on the validation set to test accuracy on an out-of-sample data set before running the test data for quiz submission.  
 
-```{r}
+#### Model 1 - rfnp
 
-kf3 <- trainControl(method = "cv", number = 3, allowParallel = TRUE)
-kf7 <- trainControl(method = "cv", number = 7, allowParallel = TRUE)
+The second is a random forest "rf" model with k-folds cross validation with 3 folds to keep the run time low.  No pre-processing is included.  This model attains a very high level of accuracy within a reasonable amount of processing time to train the model. 
 
+#### Model 2 - rfpp
 
-```
+Model 2 incorporates principal component analysis, as well as centering and scaling to preprocess.  Accuracy is reduced but run-time for training improves by about 30%.    
 
-#Validation Testing
-```{r}
+#### Model 3 - rfcv7 
 
+This model removes the pre-processing of model 2, and increases k-folds from model 1 from 3 to 7.  Run time increases by 3X without significant performance improvement over model 1.  
 
+#### Model 4 - gbm 
+
+The last model uses the gradient boosting algorithm "gbm" with 3 k-folds cross validation, similar to the rf models 1 and 2.  Accuracy is much lower at ~80%, so we do not consider further gbm variations.
+
+```{r warning=FALSE, cache=TRUE}
+ 
 cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
 registerDoParallel(cluster)
 
-model_gbm <- train(classe ~ ., method = "gbm", data = trainSet, preProcess = "pca")
-model_rf <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca")
-model_rfcv <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca",
-                    trControl = kf3)
-model_rfcv7 <- train(classe ~ ., method = "rf", data = trainSet, preProcess = "pca",
-                    trControl = kf7)
+# k-folds parameters
+kf3 <- trainControl(method = "cv", number = 3)
+kf7 <- trainControl(method = "cv", number = 7)
 
-print(model_gbm)
-pred_gbm <- predict(model_gbm, validationSet)
-gbm_resultDF <- data.frame(pred_gbm, actual = validationSet$classe) 
-mean(pred_gbm == validationSet$classe)
+preAll <- Sys.time()
 
-print(model_rf)
-pred_rf <- predict(model_rf, validationSet)
-rf_resultDF <- data.frame(pred_rf, actual = validationSet$classe)
-mean(pred_rf == validationSet$classe)
+model_rfnp <- train(classe ~ ., 
+                    method = "rf", 
+                    data = trainSet,
+                    trControl = kf3, 
+                    allowParallel = TRUE)
+postrfnp <- Sys.time()
 
-print(model_rfcv)
-pred_rfcv <- predict(model_rfcv, validationSet)
-rfcv_resultDF <- data.frame(pred_rfcv, actual = validationSet$classe)
-mean(pred_rfcv == validationSet$classe)
+model_rfpp <- train(classe ~ ., 
+                    method = "rf", 
+                    data = trainSet,
+                    preProcess = c("center", "scale", "pca"), 
+                    trControl = kf3, 
+                    allowParallel = TRUE)
+postrfpp <- Sys.time()
 
-print(model_rfcv7)
-pred_rfcv7 <- predict(model_rfcv7, validationSet)
-rfcv7_resultDF <- data.frame(pred_rfcv7, actual = validationSet$classe)
-mean(pred_rfcv7 == validationSet$classe)
+model_rfcv7 <- train(classe ~ ., 
+                     method = "rf", 
+                     data = trainSet,
+                     trControl = kf7, 
+                     allowParallel = TRUE)
+post_rfcv7 <- Sys.time()
+
+model_gbm <- train(classe ~ ., 
+                     method = "gbm", 
+                     data = trainSet, 
+                     preProcess = "pca",
+                     trControl = kf3, 
+                     verbose = FALSE)
+post_gbm <- Sys.time()
 
 stopCluster(cluster)
-registerDoSEQ()
+registerDoSEQ() 
 
 ```
 
-# Prediction quiz
+The prediction accuracy on the validation data set and time to train the model on the training data set is compared in the table below. 
 
 ```{r}
 
-pred_gbm_quiz <- predict(model_gbm, testing)
-pred_rf_quiz <- predict(model_rf, testing)
+pred_rfnp <- predict(model_rfnp, validationSet)
+vacc_rfnp <- mean(pred_rfnp == validationSet$classe)
+
+pred_rfpp <- predict(model_rfpp, validationSet)
+vacc_rfpp <- mean(pred_rfpp == validationSet$classe)
+
+pred_rfcv7 <- predict(model_rfcv7, validationSet)
+vacc_rfcv7 <- mean(pred_rfcv7 == validationSet$classe)
+
+pred_gbm <- predict(model_gbm, validationSet)
+vacc_gbm <- mean(pred_gbm == validationSet$classe)
+
+mod_compare <- enframe(c(rfnp = postrfnp-preAll,
+                   rfpp = postrfpp-postrfnp, 
+                   rfcv7 = post_rfcv7-postrfpp,
+                   gbm=post_gbm-post_rfcv7)) %>%
+        add_column(val_mod_acc = c(vacc_rfnp, 
+                                   vacc_rfpp, 
+                                   vacc_rfcv7, 
+                                   vacc_gbm)) %>%
+        rename(model = name, time = value)
+
+print(mod_compare)
+
 ```
 
+## Model selection and findings
 
-## 5 different categories:
+Below is a confusion matrix for the top performing model, Model 1 (rfnp), in terms of time to train the model and accuracy of prediction on the validation data set.  
 
-Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
+```{r echo=TRUE}
 
-exactly according to the specification (Class A) 
-throwing the elbows to the front (Class B) 
-lifting the dumbbell only halfway (Class C) 
-lowering the dumbbell only halfway (Class D)
-throwing the hips to the front (Class E)
+confusionMatrix(pred_rfnp, validationSet$classe)
 
+```
+
+I found that pre-processing does appear to be reducing complexity and runtime but at a cost to accuracy.  Extra k-folds does not appear to significantly increase performance given the extra processing time.  
+
+Given the level of accuracy in Model 1 (rfnp) and reasonable run time, this model is selected for use on the testing data set for use in the course quiz.
+
+## Prediction quiz
+
+```{r}
+
+pred_rfnp_quiz <- enframe(predict(model_rfnp, testing), name = "QuizQ", value = "Prediction")
+
+```
