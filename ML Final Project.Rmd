@@ -27,8 +27,6 @@ library(tidyverse)
 library(caret)
 library(doParallel)
 library(corrplot)
-library(Rborist)
-library(fastAdaboost)
 
 training <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
 testing <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
