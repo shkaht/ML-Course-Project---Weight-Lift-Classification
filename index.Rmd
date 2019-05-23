@@ -21,7 +21,7 @@ After exploratory data analysis is conducted, and pre-processing strategies are 
 
 The selected model utilizes k-folds cross validation and a random forest machine learning algorithm.  **The 95% confidence interval for accurately identifying the correct "classe" is 99.48 to 99.94%.**   
 
-```{r warning=FALSE, echo=FALSE}
+```{r warning=FALSE, message=FALSE}
 
 library(tidyverse)
 library(caret)
@@ -64,7 +64,7 @@ training2 <- trainingNNZV[,colSums(is.na(trainingNNZV)) < 15000]
 t <- training2[,6:59]
 ```
 
-### Validation data set
+#### Validation data set
 
 Next, I create a validation data set from the training data set in order to compare various models' accuracy prior to using on the quiz test set.  
 
@@ -76,11 +76,11 @@ trainSet <- t[inTrain,]
 validationSet <- t[-inTrain,]
 ```
 
-### Pair-wise correlation 
+#### Pair-wise correlation 
 
 I then explore correlations among preditors. While many of the variables show litlte correlation, there are also many pairs with high levels of correlation.  This is addressed by preprocessing with principal component analysis in construction of the prediction models. 
 
-```{r, fig.height=5, fig.width=5}
+```{r, fig.height=7, fig.width=7}
 mat <- trainSet[1:length(trainSet)-1]
 mat <- round(cor(mat),2)
 
@@ -202,7 +202,7 @@ confusionMatrix(pred_rfnp, validationSet$classe)
 
 ```
 
-I found that pre-processing does appear to be reducing complexity and runtime but at a cost to accuracy.  Extra k-folds does not appear to significantly increase performance given the extra processing time.  
+I found that pre-processing does appear to be reducing complexity and runtime but at a cost to accuracy.  Extra k-folds does not appear to significantly increase performance given the extra processing time based on the other implementation decisions I have made.  
 
 Given the level of accuracy in Model 1 (rfnp) and reasonable run time, this model is selected for use on the testing data set for use in the course quiz.
 
