@@ -1,0 +1,219 @@
+---
+title: "Predictive Classification - Dumbell Lift Method"
+author: "Scott Dayer"
+date: "5/23/2019"
+output: html_document
+---
+
+## Executive Summary
+
+This report describes the process and analysis performed to build a model that accurately predicts the method ("classe") in which a dumbell is raised from the Weight Lifting Exercise Dataset. 
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
+
+(A) exactly according to the specification  
+(B) throwing the elbows to the front  
+(C) lifting the dumbbell only halfway  
+(D) lowering the dumbbell only halfway 
+(E) throwing the hips to the front 
+
+After exploratory data analysis is conducted, and pre-processing strategies are identified, several models are constructed and analyzed on a validation set of data, and a final model is selected for optimal accuracy and processing speed for use on the test data in order to submit the course quiz.  
+
+The selected model utilizes k-folds cross validation and a random forest machine learning algorithm.  **The 95% confidence interval for accurately identifying the correct "classe" is 99.48 to 99.94%.**   
+
+```{r warning=FALSE, echo=FALSE}
+
+library(tidyverse)
+library(caret)
+library(doParallel)
+library(corrplot)
+
+training <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
+testing <- as_tibble(read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
+
+set.seed(10)
+
+```
+
+## Exploratory Data Analysis and Data Prep
+
+First, I look at the numbr of variables and amount of data in the training data set.  
+```{r}
+print(dim(training))
+```
+With nearly 20,000 records and 160 variables, I eliminate some of the variables to remove data issues that might impact the ability to run models, and also to simplify analysis and interpretability.  
+
+I identify a number of variables with very low variance where the most common value is more than 20 times more frequent than the next most common value and percentage of distinct values out of the number of total samples is less than 10.  
+I also identify a number of variables with mostly (19216 out of 19622) NA values that can be removed from the dataset. 
+
+```{r echo=TRUE, warning=FALSE}
+
+# count number of NAs for each variable
+na_count <- sapply(training, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+
+#identify the variables with near zero variance
+# to eliminate certain variables that 
+nzv <- nearZeroVar(training)
+
+#remove all variable with near zero variance
+trainingNNZV <- training[,-c(nzv)]
+
+#remove all variables with NAs
+training2 <- trainingNNZV[,colSums(is.na(trainingNNZV)) < 15000]
+t <- training2[,6:59]
+```
+
+### Validation data set
+
+Next, I create a validation data set from the training data set in order to compare various models' accuracy prior to using on the quiz test set.  
+
+```{r}
+
+# create a validation set from training set
+inTrain <- createDataPartition(t$classe, p = .9, list = FALSE)
+trainSet <- t[inTrain,]
+validationSet <- t[-inTrain,]
+```
+
+### Pair-wise correlation 
+
+I then explore correlations among preditors. While many of the variables show litlte correlation, there are also many pairs with high levels of correlation.  This is addressed by preprocessing with principal component analysis in construction of the prediction models. 
+
+```{r, fig.height=5, fig.width=5}
+mat <- trainSet[1:length(trainSet)-1]
+mat <- round(cor(mat),2)
+
+corrplot(mat, method = "color", type = "upper", order = "original", tl.cex = .65)
+
+```
+
+## Model construction, validation and selection
+
+4 prediction models are constructed and assessed in order to select a model with a high level of predictive accuracy, and also a reasonable processing time.  Each are trained on the updated test set and tested on the validation set to test accuracy on an out-of-sample data set before running the test data for quiz submission.  
+
+#### Model 1 - rfnp
+
+The second is a random forest "rf" model with k-folds cross validation with 3 folds to keep the run time low.  No pre-processing is included.  This model attains a very high level of accuracy within a reasonable amount of processing time to train the model. 
+
+#### Model 2 - rfpp
+
+Model 2 incorporates principal component analysis, as well as centering and scaling to preprocess.  Accuracy is reduced but run-time for training improves by about 30%.    
+
+#### Model 3 - rfcv7 
+
+This model removes the pre-processing of model 2, and increases k-folds from model 1 from 3 to 7.  Run time increases by 3X without significant performance improvement over model 1.  
+
+#### Model 4 - gbm 
+
+The last model uses the gradient boosting algorithm "gbm" with 3 k-folds cross validation, similar to the rf models 1 and 2.  Accuracy is much lower at ~80%, so we do not consider further gbm variations.
+
+```{r warning=FALSE, cache=TRUE}
+ 
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+# k-folds parameters
+kf3 <- trainControl(method = "cv", number = 3)
+kf7 <- trainControl(method = "cv", number = 7)
+
+preAll <- Sys.time()
+
+# model 1
+model_rfnp <- train(classe ~ ., 
+                    method = "rf", 
+                    data = trainSet,
+                    trControl = kf3, 
+                    allowParallel = TRUE)
+postrfnp <- Sys.time()
+
+# model 2
+model_rfpp <- train(classe ~ ., 
+                    method = "rf", 
+                    data = trainSet,
+                    preProcess = c("center", "scale", "pca"), 
+                    trControl = kf3, 
+                    allowParallel = TRUE)
+postrfpp <- Sys.time()
+
+# model 3
+model_rfcv7 <- train(classe ~ ., 
+                     method = "rf", 
+                     data = trainSet,
+                     trControl = kf7, 
+                     allowParallel = TRUE)
+post_rfcv7 <- Sys.time()
+
+# model 4
+model_gbm <- train(classe ~ ., 
+                     method = "gbm", 
+                     data = trainSet, 
+                     preProcess = "pca",
+                     trControl = kf3, 
+                     verbose = FALSE)
+post_gbm <- Sys.time()
+
+stopCluster(cluster)
+registerDoSEQ() 
+
+```
+
+The prediction accuracy on the validation data set and time to train the model on the training data set is compared in the table below. 
+
+```{r}
+# model 1
+pred_rfnp <- predict(model_rfnp, validationSet)
+vacc_rfnp <- mean(pred_rfnp == validationSet$classe)
+
+# model 2
+pred_rfpp <- predict(model_rfpp, validationSet)
+vacc_rfpp <- mean(pred_rfpp == validationSet$classe)
+
+# model 3
+pred_rfcv7 <- predict(model_rfcv7, validationSet)
+vacc_rfcv7 <- mean(pred_rfcv7 == validationSet$classe)
+
+# model 4
+pred_gbm <- predict(model_gbm, validationSet)
+vacc_gbm <- mean(pred_gbm == validationSet$classe)
+
+# building simple table of run times and accuracy
+mod_compare <- enframe(c(rfnp = postrfnp-preAll,
+                   rfpp = postrfpp-postrfnp, 
+                   rfcv7 = post_rfcv7-postrfpp,
+                   gbm=post_gbm-post_rfcv7)) %>%
+        add_column(val_mod_acc = c(vacc_rfnp, 
+                                   vacc_rfpp, 
+                                   vacc_rfcv7, 
+                                   vacc_gbm)) %>%
+        rename(model = name, time = value)
+
+print(mod_compare)
+
+```
+
+## Model selection and findings
+
+Below is a confusion matrix for the top performing model, Model 1 (rfnp), in terms of time to train the model and accuracy of prediction on the validation data set.  
+
+```{r echo=TRUE}
+
+confusionMatrix(pred_rfnp, validationSet$classe)
+
+```
+
+I found that pre-processing does appear to be reducing complexity and runtime but at a cost to accuracy.  Extra k-folds does not appear to significantly increase performance given the extra processing time.  
+
+Given the level of accuracy in Model 1 (rfnp) and reasonable run time, this model is selected for use on the testing data set for use in the course quiz.
+
+## Prediction quiz
+
+```{r}
+
+pred_rfnp_quiz <- predict(model_rfnp, testing)
+
+quizTable <- enframe(pred_rfnp_quiz, name = "QuizQ", value = "Prediction")
+
+quizTable
+
+```
